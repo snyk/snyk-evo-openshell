@@ -1,12 +1,13 @@
 # Snyk Evo ADS on NVIDIA OpenShell (prototype)
 
-A working prototype of Snyk's agent security running inside an [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) sandbox, with Claude Code as the agent. All three Snyk Evo ADS components run in one sandbox:
+A working prototype of Snyk's agent security running inside an [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) sandbox, with Claude Code as the agent. Four Snyk controls run in one sandbox:
 
 - **Agent Scan** inventories the sandbox's MCP servers and skills and reports them to Evo.
 - **Agent Guard** hooks into Claude Code and enforces Evo policies at runtime.
 - **Snyk Studio (Secure at Inception)** scans code as the agent writes it and fixes findings with `/snyk-fix`.
+- **Dependency Firewall** makes the Snyk registry the only place npm, pip and uv can install packages from. Snyk's policies decide which versions are served, and OpenShell blocks every public registry so the agent can't go around it. See [Dependency Firewall](#dependency-firewall).
 
-> **Status:** experimental. Tested on macOS (Apple Silicon) with Docker Desktop and OpenShell 0.1.6, Oct 29, 2026. Not an official Snyk or NVIDIA artifact.
+> **Status:** experimental. Tested on macOS (Apple Silicon) with Docker Desktop and OpenShell 0.1.6, Oct 29 to Nov 2, 2026, with and without Zscaler. Not an official Snyk or NVIDIA artifact. Dependency Firewall is in experimental preview for design partners.
 
 ## Quick start
 
@@ -21,7 +22,7 @@ That's it. `run.sh` prompts (hidden input) for anything not already in your envi
 3. Builds the image.
 4. Stores your Anthropic API key in OpenShell, so the agent never sees it.
 5. Creates the sandbox with a **pre-approved network policy** (`policy.yaml`), so there's nothing to approve.
-6. Inside the sandbox, installs Studio, Agent Guard, the demo skills and MCP servers, runs the first Agent Scan, starts a 15-minute rescan loop, and opens Claude Code.
+6. Inside the sandbox, installs Studio, Agent Guard, the demo skills and MCP servers, points npm, pip and uv at your tenant's Dependency Firewall registry, runs the first Agent Scan, starts a 15-minute rescan loop, and opens Claude Code.
 
 Reconnect later with `openshell sandbox connect snyk-ads`. Run a second sandbox with `SANDBOX_NAME=demo2 ./run.sh`.
 
@@ -31,6 +32,7 @@ Reconnect later with `openshell sandbox connect snyk-ads`. Run a second sandbox 
 | --- | --- | --- |
 | `SNYK_ADS_PUSH_KEY` | evo.snyk.io/settings | Yes (env var) |
 | `SNYK_TOKEN` | app.snyk.io/account | Yes (env var) |
+| `SNYK_TENANT_ID` (Dependency Firewall) | Evo → Application Supply Chain → Connections | Yes (not a secret) |
 | `ANTHROPIC_API_KEY` | Anthropic Console | **No**, held by OpenShell |
 | or `CLAUDE_CODE_OAUTH_TOKEN` | `claude setup-token` (Claude Team/Enterprise seat) | Yes (env var) |
 
@@ -46,7 +48,8 @@ Reconnect later with `openshell sandbox connect snyk-ads`. Run a second sandbox 
 | Agent Scan | Found 3 MCP servers and 3 skills; flagged the planted test skill for prompt injection (1000/1000) and insecure credential handling (600/1000) |
 | Studio | Caught a SQL injection Claude wrote (CWE-89, `python/Sqli`, High); `/snyk-fix` fixed it; rescan found 0 issues |
 | Agent Guard | Evo's *Allowed MCP Servers* policy (blocked in runtime) stopped an unapproved MCP server mid-session; the approved one kept working |
-| OpenShell | Default-deny network with per-binary rules; the agent could not reach PyPI or see host files |
+| Dependency Firewall | flask and lodash served through the Snyk registry; a version inside the 7-day cooldown was blocked (`403`, `cooldown-npm`); Claude reported the block by policy name |
+| OpenShell | Default-deny network with per-binary rules; blocked the agent's attempt to install from `registry.npmjs.org` directly; the agent couldn't see host files |
 
 ### Demo prompts (in Claude)
 
@@ -63,9 +66,19 @@ The two products cover each other's gap: Dependency Firewall can't stop traffic 
 
 Demo prompts:
 
-1. `Install flask and lodash.` Served through the firewall, and visible under **Install requests** in Evo.
-2. With a cooldown or known-malware policy in block mode: install a blocked version, and npm gets `403 policy denied` from Snyk.
-3. `Install lodash from https://registry.npmjs.org directly.` OpenShell denies the connection.
+1. `Create a uv venv and install flask, then npm install lodash.` Served through the firewall, and visible under **Install requests** in Evo.
+2. With a cooldown or known-malware policy in block mode, ask for a version that breaks it, for example a package version published in the last 7 days. The firewall removes blocked versions from the package metadata, so npm reports `ETARGET` ("no matching version"). The setup script adds a short `~/.claude/CLAUDE.md` that tells Claude how this environment works, so it checks the reason and replies "Blocked by Snyk Dependency Firewall (cooldown-npm): version is younger than the minimum allowed age".
+3. `Install lodash directly from https://registry.npmjs.org.` OpenShell denies the connection (`DENIED /usr/bin/node -> registry.npmjs.org`).
+
+To see the raw policy decision, request the blocked version's tarball from the sandbox shell:
+
+```bash
+curl -s -H "Authorization: Bearer $SNYK_TOKEN" \
+  "https://api.snyk.io/hidden/tenants/$SNYK_TENANT_ID/registry/npm_portable/<pkg>/-/<pkg>-<version>.tgz"
+# {"error":"policy denied","matched_rules":["cooldown-npm"],"reason":"version is younger than the minimum allowed age",...}
+```
+
+Requires the `maverick` and `evoApplicationSupplyChain` entitlements on your tenant and the Tenant Admin role. The app is at evo.snyk.io/application-supply-chain.
 
 Overrides: `SNYK_REGISTRY_HOST` (default `api.snyk.io`), `SNYK_NPM_PATH` (default `npm_portable`), `SNYK_PYPI_PATH` (default `pypi/simple`). Use the values on your tenant's **Connections** page.
 
