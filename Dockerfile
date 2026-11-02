@@ -3,7 +3,8 @@
 #   https://github.com/NVIDIA/OpenShell/tree/main/examples/bring-your-own-container
 FROM nvcr.io/nvidia/base/ubuntu:24.04
 
-# Optional: drop Zscaler root cert (PEM, .crt) into ./corp-ca/ before building
+# Corporate root CA for TLS-inspecting networks (Zscaler etc.). run.sh puts it
+# in ./corp-ca/ automatically when it detects interception; empty otherwise.
 COPY corp-ca/ /usr/local/share/ca-certificates/corp-ca/
 
 # iproute2 is required for full network namespace isolation
@@ -69,7 +70,16 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
 # --- Demo skills, copied into ~/.claude/skills inside the sandbox -------------
 # Must live under /usr: OpenShell's filesystem policy can't read /opt
 COPY demo-skills/ /usr/local/share/snyk-demo/skills/
+RUN chmod -R a+rX /usr/local/share/snyk-demo
 
+# --- Pre-approved OpenShell policy and the in-sandbox setup scripts ----------
+# OpenShell uses /etc/openshell/policy.yaml when no --policy is given.
+COPY policy.yaml /etc/openshell/policy.yaml
+COPY --chmod=0755 sandbox/snyk-openshell-setup sandbox/snyk-openshell-rescan /usr/local/bin/
+
+# Stop Claude Code's auto-updater, telemetry and error reporting. The policy
+# blocks those hosts anyway; this keeps the logs free of denied connections.
+ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ENV PATH="/sandbox/.local/bin:${PATH}"
 USER sandbox
 WORKDIR /sandbox

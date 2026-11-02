@@ -1,0 +1,82 @@
+# OpenShell sandbox policy for Snyk Evo ADS + Claude Code.
+# Baked into the image at /etc/openshell/policy.yaml and also passed by run.sh,
+# so a new sandbox needs no manual rule approvals.
+# Schema: https://docs.nvidia.com/openshell/latest/how-it-works/policies/schema
+#
+# Everything not listed here stays blocked (PyPI, npm, GitHub, Datadog, etc.).
+version: 1
+
+filesystem_policy:
+  include_workdir: true          # /sandbox ($HOME) is read-write
+  read_only: [/bin, /usr, /lib, /proc, /dev/urandom, /etc, /var/log]
+  read_write: [/tmp, /dev/null]
+
+landlock:
+  compatibility: best_effort
+
+network_policies:
+  # Claude Code: model API, and the hosts it needs to start and sign in.
+  claude_code:
+    endpoints:
+      # Inspected (L7), because the Anthropic provider injects a credential here.
+      - host: api.anthropic.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+      - host: platform.claude.com
+        port: 443
+      - host: claude.ai
+        port: 443
+    binaries:
+      - path: /usr/local/bin/claude
+
+  # Snyk Agent Scan and Agent Guard (one binary): inventory upload, Guard
+  # install test event, MCP discovery.
+  snyk_agent_scan:
+    endpoints:
+      - host: api.snyk.io
+        port: 443
+    binaries:
+      - path: /usr/local/bin/agent-scan
+
+  # Agent Guard's Claude Code hook script sends events with curl.
+  snyk_agent_guard_hook:
+    endpoints:
+      - host: api.snyk.io
+        port: 443
+    binaries:
+      - path: /usr/bin/curl
+
+  # Snyk Dependency Firewall: npm, pip and uv may install packages ONLY from the
+  # Snyk registry on api.snyk.io. registry.npmjs.org, pypi.org and
+  # files.pythonhosted.org are not listed, so going around the firewall
+  # (for example `npm install --registry https://registry.npmjs.org`) is blocked.
+  snyk_dependency_firewall:
+    endpoints:
+      # Inspected so allow_encoded_slash can apply: npm requests scoped
+      # packages (@scope/name) as @scope%2fname, which OpenShell otherwise
+      # rejects. access: full avoids restricting Snyk CLI calls made under a
+      # python parent process (Studio's hooks).
+      - host: api.snyk.io
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: full
+        allow_encoded_slash: true
+    binaries:
+      - path: /usr/bin/node
+      - path: /usr/bin/nodejs
+      - path: /usr/bin/python3.12
+      - path: /usr/local/bin/uv
+
+  # Snyk CLI, used by Snyk Studio's hooks, /snyk-fix and the Snyk MCP server.
+  # deeproxy.snyk.io is required for Snyk Code (SAST).
+  snyk_cli:
+    endpoints:
+      - host: api.snyk.io
+        port: 443
+      - host: deeproxy.snyk.io
+        port: 443
+    binaries:
+      - path: /usr/local/bin/snyk

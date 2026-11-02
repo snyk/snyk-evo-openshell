@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Runs inside the OpenShell sandbox as its main process (started by run.sh).
+# Sets up Snyk Studio, Agent Guard, Agent Scan, demo skills and MCP servers,
+# then starts Claude Code. Safe to run more than once.
+set -u
+
+MACHINE_ID="${SNYK_MACHINE_ID:-openshell:$(hostname)}"
+LOG_DIR="$HOME/.snyk"
+LOG="$LOG_DIR/openshell-setup.log"
+mkdir -p "$LOG_DIR" "$HOME/.claude/skills"
+
+say()  { printf '\033[1;36m[snyk-setup]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[snyk-setup] WARNING:\033[0m %s\n' "$*"; }
+step() { # step "description" command...
+  local desc="$1"; shift
+  say "$desc"
+  if "$@" >>"$LOG" 2>&1; then return 0; fi
+  warn "$desc failed. Details: $LOG"
+  return 1
+}
+
+say "Machine ID for Evo: $MACHINE_ID"
+
+# 1. Claude Code first-run state, so Guard detects Claude and Claude skips
+#    the onboarding screens.
+if [ ! -f "$HOME/.claude.json" ]; then
+  cat >"$HOME/.claude.json" <<'JSON'
+{
+  "hasCompletedOnboarding": true,
+  "projects": { "/sandbox": { "hasTrustDialogAccepted": true } }
+}
+JSON
+fi
+[ -f "$HOME/.claude/settings.json" ] || echo '{}' >"$HOME/.claude/settings.json"
+
+# 2. Demo skills (two ordinary ones and one malicious test fixture).
+step "Installing demo skills" bash -c 'cp -R /usr/local/share/snyk-demo/skills/* "$HOME/.claude/skills/"'
+
+# 3. Demo MCP servers (local only).
+claude mcp get filesystem >/dev/null 2>&1 || \
+  step "Adding filesystem MCP server" claude mcp add --scope user filesystem -- mcp-server-filesystem /sandbox
+claude mcp get memory >/dev/null 2>&1 || \
+  step "Adding memory MCP server" claude mcp add --scope user memory -- mcp-server-memory
+
+# 4. Snyk Studio (Secure at Inception). Must run before Guard.
+if [ -z "${SNYK_TOKEN:-}" ]; then
+  warn "SNYK_TOKEN not set: Studio installs, but its Snyk CLI scans will not authenticate."
+fi
+if [ ! -f "$HOME/.claude/hooks/snyk_secure_at_inception.py" ]; then
+  step "Installing Snyk Studio" snyk-studio-installer install -y
+fi
+
+# 5. Agent Guard hooks, then a first Agent Scan.
+if [ -n "${SNYK_ADS_PUSH_KEY:-}" ]; then
+  step "Installing Agent Guard hooks" \
+    env PUSH_KEY="$SNYK_ADS_PUSH_KEY" MACHINE_ID="$MACHINE_ID" agent-scan guard install claude
+  step "Running Agent Scan (results go to Evo)" \
+    agent-scan scan --machine-id "$MACHINE_ID" --push-key "$SNYK_ADS_PUSH_KEY"
+
+  # Rescan every 15 minutes while the sandbox runs, like the Docker kit.
+  if ! pgrep -f snyk-openshell-rescan >/dev/null 2>&1; then
+    nohup snyk-openshell-rescan "$MACHINE_ID" >>"$LOG_DIR/agent-scan-recurring.log" 2>&1 &
+  fi
+else
+  warn "SNYK_ADS_PUSH_KEY not set: skipping Agent Guard and Agent Scan."
+fi
+
+# 6. Snyk Dependency Firewall: point npm, pip and uv at the Snyk registry.
+#    The token is read from $SNYK_TOKEN at install time, not written to disk.
+if [ -n "${SNYK_TENANT_ID:-}" ] && [ -n "${SNYK_TOKEN:-}" ]; then
+  REG_HOST="${SNYK_REGISTRY_HOST:-api.snyk.io}"
+  REG_BASE="https://$REG_HOST/hidden/tenants/$SNYK_TENANT_ID/registry"
+  NPM_URL="$REG_BASE/${SNYK_NPM_PATH:-npm_portable}/"
+  PYPI_URL="$REG_BASE/${SNYK_PYPI_PATH:-pypi/simple}/"
+  cat >"$HOME/.npmrc" <<EOF
+registry=$NPM_URL
+//${NPM_URL#https://}:_authToken=\${SNYK_TOKEN}
+always-auth=true
+EOF
+  export PIP_INDEX_URL="https://snyk:${SNYK_TOKEN}@${PYPI_URL#https://}"
+  export UV_INDEX_URL="$PIP_INDEX_URL"
+  export UV_DEFAULT_INDEX="$PIP_INDEX_URL"
+  # Tell Claude how this environment works, so it explains a firewall block
+  # correctly instead of guessing ("version doesn't exist", "404").
+  if ! grep -q "snyk-openshell-context" "$HOME/.claude/CLAUDE.md" 2>/dev/null; then
+    cat >>"$HOME/.claude/CLAUDE.md" <<EOF
+<!-- snyk-openshell-context -->
+# This environment: NVIDIA OpenShell sandbox + Snyk
+
+- You run inside an NVIDIA OpenShell sandbox. Outbound network access is deny-by-default and only approved hosts are reachable. Never try to get around it (other registries, proxies, disabling the sandbox). If something is blocked, say what was blocked and stop.
+- Package installs go through **Snyk Dependency Firewall**. npm uses the Snyk registry in ~/.npmrc, and pip/uv use \$PIP_INDEX_URL. Public registries (registry.npmjs.org, pypi.org) are blocked by design.
+- The firewall hides versions that break the tenant's policy (for example a cooldown on newly published versions, or known malware). So when a specific version "doesn't exist" (npm ETARGET/notarget, pip "no matching distribution") or returns 403, **assume the Snyk policy blocked it**. Don't conclude it was never published.
+- To get the exact reason for an npm package, request its tarball and read the JSON response (\`matched_rules\`, \`reason\`):
+  \`curl -s -H "Authorization: Bearer \$SNYK_TOKEN" "${NPM_URL}<name>/-/<name>-<version>.tgz"\`
+  (scoped package: \`${NPM_URL}@<scope>/<name>/-/<name>-<version>.tgz\`)
+- Report it like this: "Blocked by Snyk Dependency Firewall (<rule>): <reason>". Then offer the newest allowed version, and don't install a different version without asking.
+EOF
+  fi
+  say "Dependency Firewall on: npm, pip and uv install only through the Snyk registry"
+else
+  warn "SNYK_TENANT_ID not set: Dependency Firewall not configured (package installs stay blocked)."
+fi
+
+say "Setup complete. Log: $LOG"
+say "Starting Claude Code. Your sandbox: /sandbox"
+claude "$@"
+
+# Keep the sandbox running after Claude exits, so `openshell sandbox connect`
+# drops you back into a shell (run `claude --continue` to resume).
+say "Claude exited. You're in a sandbox shell; run 'claude --continue' to resume, 'exit' to stop the sandbox."
+exec bash -l

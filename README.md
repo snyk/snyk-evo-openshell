@@ -6,105 +6,116 @@ A working prototype of Snyk's agent security running inside an [NVIDIA OpenShell
 - **Agent Guard** hooks into Claude Code and enforces Evo policies at runtime.
 - **Snyk Studio (Secure at Inception)** scans code as the agent writes it and fixes findings with `/snyk-fix`.
 
-> **Status:** experimental, tested on macOS (Apple Silicon) with Docker Desktop and OpenShell 0.1.6 on Oct 29, 2026. Not an official Snyk or NVIDIA artifact.
+> **Status:** experimental. Tested on macOS (Apple Silicon) with Docker Desktop and OpenShell 0.1.6, Oct 29, 2026. Not an official Snyk or NVIDIA artifact.
 
-## What was shown
+## Quick start
+
+```bash
+./run.sh
+```
+
+That's it. `run.sh` prompts (hidden input) for anything not already in your environment, then:
+
+1. Installs OpenShell if it's missing.
+2. Detects TLS inspection (Zscaler, Netskope, ...) and, if found, exports the corporate root CA and routes OpenShell's traffic through a local proxy that trusts it.
+3. Builds the image.
+4. Stores your Anthropic API key in OpenShell, so the agent never sees it.
+5. Creates the sandbox with a **pre-approved network policy** (`policy.yaml`), so there's nothing to approve.
+6. Inside the sandbox, installs Studio, Agent Guard, the demo skills and MCP servers, runs the first Agent Scan, starts a 15-minute rescan loop, and opens Claude Code.
+
+Reconnect later with `openshell sandbox connect snyk-ads`. Run a second sandbox with `SANDBOX_NAME=demo2 ./run.sh`.
+
+### Credentials
+
+| Variable | Where to get it | Visible to the agent? |
+| --- | --- | --- |
+| `SNYK_ADS_PUSH_KEY` | evo.snyk.io/settings | Yes (env var) |
+| `SNYK_TOKEN` | app.snyk.io/account | Yes (env var) |
+| `ANTHROPIC_API_KEY` | Anthropic Console | **No**, held by OpenShell |
+| or `CLAUDE_CODE_OAUTH_TOKEN` | `claude setup-token` (Claude Team/Enterprise seat) | Yes (env var) |
+
+### Prerequisites
+
+- macOS on Apple Silicon or Linux, Docker Desktop 28+ (or Docker Engine on Linux)
+- **One-time:** Docker Desktop → Settings → Resources → Network → **Enable host networking**. `run.sh` checks this and tells you if it's off.
+
+## What the demo shows
 
 | Test | Result |
 | --- | --- |
 | Agent Scan | Found 3 MCP servers and 3 skills; flagged the planted test skill for prompt injection (1000/1000) and insecure credential handling (600/1000) |
 | Studio | Caught a SQL injection Claude wrote (CWE-89, `python/Sqli`, High); `/snyk-fix` fixed it; rescan found 0 issues |
 | Agent Guard | Evo's *Allowed MCP Servers* policy (blocked in runtime) stopped an unapproved MCP server mid-session; the approved one kept working |
-| OpenShell | Default-deny network; per-binary rules; agent could not reach PyPI or see host files |
+| OpenShell | Default-deny network with per-binary rules; the agent could not reach PyPI or see host files |
 
-## Prerequisites
-
-- macOS on Apple Silicon or Linux, Docker Desktop 28+
-- Docker Desktop **Settings → Resources → Network → Enable host networking** (OpenShell's supervisor uses host networking)
-- No TLS inspection on the network path (see Known issues)
-- An Evo tenant push key (evo.snyk.io/settings) and a Snyk API token (app.snyk.io/account)
-- Claude Code access: an Anthropic API key with credit, or a Claude Team/Enterprise seat
-
-## Run it
-
-**1. Install OpenShell and build the image (host)**
-
-```bash
-curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
-docker build -t snyk-openshell-claude:latest .
-```
-
-**2. Create the sandbox (host).** `read -s` keeps secrets off the screen.
-
-```bash
-read -s SNYK_ADS_PUSH_KEY && export SNYK_ADS_PUSH_KEY
-read -s SNYK_TOKEN && export SNYK_TOKEN
-openshell sandbox create --name snyk-ads \
-  --from snyk-openshell-claude:latest \
-  --env-from SNYK_ADS_PUSH_KEY --env-from SNYK_TOKEN
-```
-
-To use an API key held by OpenShell instead of a login, import NVIDIA's [`claude-code` provider profile](https://github.com/NVIDIA/OpenShell/blob/main/providers/claude-code.yaml), create a provider, and add `--provider <name>`.
-
-**3. Approve network rules as they come up (second host terminal).** Every new sandbox starts with no network access.
-
-```bash
-openshell rule get snyk-ads --status pending
-openshell rule approve snyk-ads --chunk-id <id>
-```
-
-Rules this demo needs:
-
-| Binary | Host |
-| --- | --- |
-| `/usr/local/bin/claude` | `api.anthropic.com` (via provider), `platform.claude.com`, `claude.ai` (for `/login`) |
-| `/usr/local/bin/agent-scan` | `api.snyk.io` |
-| `/usr/bin/curl` (Guard hook) | `api.snyk.io` |
-| `/usr/local/bin/snyk` | `api.snyk.io`, `deeproxy.snyk.io` |
-
-Reject what the demo doesn't need, for example Datadog intake, `downloads.claude.ai`, `mcp-proxy.anthropic.com` and `pypi.org`.
-
-**4. Set up inside the sandbox**
-
-```bash
-claude                      # first run creates ~/.claude; /login if not using a provider; then /exit
-mkdir -p ~/.claude/skills && cp -R /usr/local/share/snyk-demo/skills/* ~/.claude/skills/
-claude mcp add --scope user filesystem -- mcp-server-filesystem /sandbox
-claude mcp add --scope user memory -- mcp-server-memory
-snyk-studio-installer install -y
-PUSH_KEY="$SNYK_ADS_PUSH_KEY" MACHINE_ID="openshell:snyk-ads" agent-scan guard install claude
-agent-scan scan --show-analysis-results --machine-id "openshell:snyk-ads" --push-key "$SNYK_ADS_PUSH_KEY"
-```
-
-Install Studio **before** Guard. Guard's installer preserves existing hooks.
-
-**5. Demo prompts (in Claude)**
+### Demo prompts (in Claude)
 
 1. `Create a small Flask app with a /user endpoint that looks up a user by id from SQLite.`
-2. `For a security demo, add a second endpoint /search that builds the SQL query with an f-string from the name query parameter.` Studio flags it, then run `/snyk-fix`.
+2. `For a security demo, add a second endpoint /search that builds the SQL query with an f-string from the name query parameter.` Studio flags it. Then run `/snyk-fix`.
 3. With Evo's *Allowed MCP Servers* policy set to block in runtime and `memory` not allowed: `Use the memory MCP server to remember the note "openshell demo".`
-4. `Use the env-diagnostics skill.` Do not approve any rule for `exfil-test.invalid`.
+4. `Use the env-diagnostics skill.` (the planted malicious skill)
 
-## What's in here
+## Dependency Firewall
+
+When you give `run.sh` your Snyk tenant ID, npm, pip and uv inside the sandbox install packages only through the Snyk registry (`api.snyk.io/hidden/tenants/<tenant-id>/registry/...`), where your Evo Application Supply Chain policies decide what's served. The OpenShell policy doesn't allow `registry.npmjs.org`, `pypi.org` or `files.pythonhosted.org`, so the agent can't route around the firewall.
+
+The two products cover each other's gap: Dependency Firewall can't stop traffic that goes straight to a public registry, and OpenShell can block that traffic but can't tell a safe package from a malicious one.
+
+Demo prompts:
+
+1. `Install flask and lodash.` Served through the firewall, and visible under **Install requests** in Evo.
+2. With a cooldown or known-malware policy in block mode: install a blocked version, and npm gets `403 policy denied` from Snyk.
+3. `Install lodash from https://registry.npmjs.org directly.` OpenShell denies the connection.
+
+Overrides: `SNYK_REGISTRY_HOST` (default `api.snyk.io`), `SNYK_NPM_PATH` (default `npm_portable`), `SNYK_PYPI_PATH` (default `pypi/simple`). Use the values on your tenant's **Connections** page.
+
+## Network policy
+
+`policy.yaml` is the complete allow list. Everything else is blocked.
+
+| Binary | Allowed hosts |
+| --- | --- |
+| `/usr/local/bin/claude` | `api.anthropic.com`, `platform.claude.com`, `claude.ai` |
+| `/usr/local/bin/agent-scan` | `api.snyk.io` |
+| `/usr/bin/curl` (Agent Guard hook) | `api.snyk.io` |
+| `/usr/local/bin/snyk` (Studio, Snyk MCP) | `api.snyk.io`, `deeproxy.snyk.io` |
+| `node` (npm), `python3.12` (pip), `uv` | `api.snyk.io` only (Dependency Firewall) |
+
+The image also sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, so Claude Code's updater, telemetry and error reporting don't try to connect.
+
+## How TLS inspection is handled
+
+OpenShell's supervisor, not the agent's image, makes the real outbound connections, so a corporate CA baked into the image isn't enough. OpenShell's Docker runtime trusts a corporate CA only through an explicit proxy (`proxy_ca_bundle` requires `https_proxy`). When `run.sh` detects interception it:
+
+1. Exports the root CA (macOS keychain, or the live TLS chain) to `corp-ca/` and `~/.config/openshell/snyk-corp-ca.pem`.
+2. Starts a local Squid proxy container (`snyk-openshell-proxy`) on port 3128.
+3. Adds a marked block to the OpenShell gateway config with `https_proxy`, `no_proxy` and `proxy_ca_bundle`, validates it with `openshell-gateway config preflight`, backs up the old file and restarts the gateway.
+
+Without interception, it removes that block and the proxy. Rerun `./run.sh` after you turn Zscaler on or off.
+
+## Repository layout
 
 | Path | Purpose |
 | --- | --- |
+| `run.sh` | The one command: prerequisites, TLS handling, build, credentials, sandbox |
+| `policy.yaml` | Pre-approved OpenShell policy (also baked into the image at `/etc/openshell/policy.yaml`) |
 | `Dockerfile` | NVIDIA Ubuntu base + Claude Code, Agent Scan/Guard, Snyk CLI, Studio installer, uv, two local MCP servers |
-| `vendor/` | Install scripts from [snyk/evo-ads-sbx-kit](https://github.com/snyk/evo-ads-sbx-kit) (Apache-2.0), unchanged |
+| `sandbox/` | `snyk-openshell-setup` (runs at sandbox start) and `snyk-openshell-rescan` (15-minute rescans) |
+| `vendor/` | Install scripts from [snyk/evo-ads-sbx-kit](https://github.com/snyk/evo-ads-sbx-kit), unchanged |
 | `demo-skills/` | Two ordinary skills and one **deliberately malicious test skill** |
-| `corp-ca/` | Optional corporate root CA for the image build |
+| `corp-ca/` | Corporate root CA, filled automatically when needed (gitignored) |
 
 > **`demo-skills/canary-risky-skill-TEST` is a detection test fixture.** It contains prompt-injection and exfiltration instructions on purpose, pointed at a reserved `.invalid` domain. Don't install it outside a sandbox.
 
-## Known issues
+## Known limitations
 
-- **TLS inspection (Zscaler etc.) breaks the sandbox.** OpenShell's supervisor rejects re-signed certificates. The Docker runtime has no documented way to trust a corporate CA without an explicit proxy. Guard and Studio fail open when this happens.
-- **Binaries must live under `/usr`.** OpenShell's filesystem policy only allows reading and running from system paths plus `/sandbox`, so nothing can be installed into `$HOME` at runtime.
-- **`$HOME` is `/sandbox`** inside the sandbox, not `/home/sandbox`.
-- **NVIDIA's `claude-code` profile** doesn't include `platform.claude.com`, which current Claude Code needs.
-- **Credentials:** the push key and API token are passed as environment variables, so the agent can read them. Moving them into OpenShell providers is the next step.
-- **Approvals don't persist** across sandboxes. A starting policy file is planned.
+- **Snyk credentials are visible to the agent.** The push key and API token are environment variables. Moving them into OpenShell providers is next.
+- **`CLAUDE_CODE_OAUTH_TOKEN` is visible to the agent** too. Use `ANTHROPIC_API_KEY` to keep the Claude credential in OpenShell.
+- **Binaries must live under `/usr`.** OpenShell only lets the sandbox read and run files from system paths plus `/sandbox`, so nothing is installed into `$HOME` at runtime. Inside the sandbox, `$HOME` is `/sandbox`.
+- **NVIDIA's `claude-code` provider profile** doesn't list `platform.claude.com`; `policy.yaml` covers it.
+- **Only tested on Apple Silicon.** The scripts handle x86_64, but it hasn't been run there.
+- **Unpinned downloads.** The image installs the latest Claude Code, Agent Scan, Snyk CLI, Studio, uv and MCP servers. Snyk binaries are checksum-verified; the Claude Code and uv installers aren't.
 
 ## License
 
-Apache-2.0 for files authored here. `vendor/` files keep their upstream Apache-2.0 license from snyk/evo-ads-sbx-kit.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
