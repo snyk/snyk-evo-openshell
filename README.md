@@ -129,6 +129,10 @@ Without interception, it removes that block and the proxy. Rerun `./run.sh` afte
 - **Only tested on Apple Silicon.** The scripts handle x86_64, but it hasn't been run there.
 - **Unpinned downloads.** The image installs the latest Claude Code, Agent Scan, Snyk CLI, Studio, uv and MCP servers. Snyk binaries are checksum-verified; the Claude Code and uv installers aren't.
 
+## Contributing
+
+This repository is closed to public contributions.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
