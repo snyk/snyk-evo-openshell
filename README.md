@@ -68,7 +68,7 @@ Demo prompts:
 
 1. `Create a uv venv and install flask, then npm install lodash.` Served through the firewall, and visible under **Install requests** in Evo.
 2. With a cooldown or known-malware policy in block mode, ask for a version that breaks it, for example a package version published in the last 7 days. The firewall removes blocked versions from the package metadata, so npm reports `ETARGET` ("no matching version"). The setup script adds a short `~/.claude/CLAUDE.md` that tells Claude how this environment works, so it checks the reason and replies "Blocked by Snyk Dependency Firewall (cooldown-npm): version is younger than the minimum allowed age".
-3. `Install lodash directly from https://registry.npmjs.org.` OpenShell denies the connection (`DENIED /usr/bin/node -> registry.npmjs.org`).
+3. `Install lodash directly from https://registry.npmjs.org.` OpenShell denies the connection (`DENIED /usr/local/bin/node -> registry.npmjs.org`).
 
 To see the raw policy decision, request the blocked version's tarball from the sandbox shell:
 
