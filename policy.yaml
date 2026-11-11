@@ -65,8 +65,7 @@ network_policies:
         access: full
         allow_encoded_slash: true
     binaries:
-      - path: /usr/bin/node
-      - path: /usr/bin/nodejs
+      - path: /usr/local/bin/node
       - path: /usr/bin/python3.12
       - path: /usr/local/bin/uv
 
