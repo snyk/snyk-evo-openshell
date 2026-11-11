@@ -33,7 +33,9 @@ JSON
 fi
 [ -f "$HOME/.claude/settings.json" ] || echo '{}' >"$HOME/.claude/settings.json"
 
-# 2. Demo skills (two ordinary ones and one malicious test fixture).
+# 2. Demo skills (two ordinary ones and the canary test fixtures).
+# HOME is expanded by the inner shell. The single quotes are intentional.
+# shellcheck disable=SC2016
 step "Installing demo skills" bash -c 'cp -R /usr/local/share/snyk-demo/skills/* "$HOME/.claude/skills/"'
 
 # 3. Demo MCP servers (local only).

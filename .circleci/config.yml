@@ -1,0 +1,152 @@
+version: 2.1
+
+orbs:
+  # Major pin required by prodsec metadata scanning. @1 tracks the paved path.
+  prodsec: snyk/prodsec-orb@1
+
+parameters:
+  # Same CircleCI context agent-scan and mcp-catalog use for SNYK_TOKEN.
+  # The token's default org is used; those configs do not pass an org slug.
+  snyk-scan-context:
+    description: CircleCI context that provides SNYK_TOKEN to Snyk security scanning.
+    type: string
+    default: etso_llm
+
+jobs:
+  security-scans:
+    parameters:
+      mode:
+        type: string
+        default: gate
+    resource_class: small
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - prodsec/security_scans:
+          mode: << parameters.mode >>
+
+  container-scan:
+    parameters:
+      mode:
+        type: string
+        default: gate
+    resource_class: medium
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Build the OpenShell sandbox image
+          command: |
+            docker build --pull --no-cache \
+              -t snyk-evo-openshell:${CIRCLE_WORKFLOW_ID} \
+              -f Dockerfile .
+      - prodsec/container_scan:
+          mode: << parameters.mode >>
+          docker-image-name: snyk-evo-openshell:${CIRCLE_WORKFLOW_ID}
+          docker-file: Dockerfile
+
+  shellcheck:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - run:
+          name: Install ShellCheck v0.10.0
+          command: |
+            curl -fsSL -o /tmp/shellcheck.tar.xz \
+              https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz
+            tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+            sudo install -m 0755 /tmp/shellcheck-v0.10.0/shellcheck /usr/local/bin/shellcheck
+      - run:
+          name: ShellCheck
+          command: |
+            shellcheck -x \
+              run.sh \
+              sandbox/snyk-openshell-rescan \
+              sandbox/snyk-openshell-setup \
+              vendor/install-agent-scan.sh \
+              vendor/install-studio.sh
+
+  hadolint:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - run:
+          name: Install Hadolint v2.14.0
+          command: |
+            curl -fsSL -o /tmp/hadolint \
+              https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-Linux-x86_64
+            sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
+      - run:
+          name: Hadolint
+          command: hadolint Dockerfile
+
+workflows:
+  # secrets-scan stays first. The job is a GitGuardian no-op today and is
+  # kept so it can be repurposed for Snyk Secrets scanning.
+  # Non-main branches (pull requests) gate. main uploads results.
+  security:
+    jobs:
+      - prodsec/secrets-scan:
+          name: Scan repository for secrets
+          context:
+            - snyk-bot-slack
+            - prodsec-orb-runtime
+          channel: mcp-scan-alerting
+          trusted-branch: main
+
+      - security-scans:
+          name: Security scans (gate)
+          mode: gate
+          context:
+            - << pipeline.parameters.snyk-scan-context >>
+            - prodsec-orb-runtime
+          filters:
+            branches:
+              ignore:
+                - main
+
+      - security-scans:
+          name: Security scans (upload)
+          mode: upload
+          context:
+            - << pipeline.parameters.snyk-scan-context >>
+            - prodsec-orb-runtime
+          filters:
+            branches:
+              only:
+                - main
+
+      - container-scan:
+          name: Container scan (gate)
+          mode: gate
+          context:
+            - << pipeline.parameters.snyk-scan-context >>
+            - snyk-docker-build
+            - prodsec-orb-runtime
+          filters:
+            branches:
+              ignore:
+                - main
+
+      - container-scan:
+          name: Container scan (upload)
+          mode: upload
+          context:
+            - << pipeline.parameters.snyk-scan-context >>
+            - snyk-docker-build
+            - prodsec-orb-runtime
+          filters:
+            branches:
+              only:
+                - main
+
+      - shellcheck:
+          name: ShellCheck
+
+      - hadolint:
+          name: Hadolint
