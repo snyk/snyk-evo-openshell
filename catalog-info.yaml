@@ -4,6 +4,6 @@ metadata:
   name: snyk-evo-openshell
   description: A working prototype of Snyk's agent security running inside an NVIDIA OpenShell sandbox, with Claude Code as the agent.
 spec:
-  type: internal-tooling
+  type: external-tooling
   lifecycle: "-"
   owner: emerging-tech-strategy_llm
