@@ -56,6 +56,8 @@ jobs:
       - run:
           name: Install ShellCheck v0.10.0
           command: |
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq xz-utils
             curl -fsSL -o /tmp/shellcheck.tar.xz \
               https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz
             tar -xJf /tmp/shellcheck.tar.xz -C /tmp
@@ -83,7 +85,9 @@ jobs:
             sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
       - run:
           name: Hadolint
-          command: hadolint Dockerfile
+          # Gate on errors, matching the prodsec dockerfile-scan default.
+          # Warnings in the existing Dockerfile are tracked in the PR follow-ups.
+          command: hadolint --failure-threshold error Dockerfile
 
 workflows:
   # secrets-scan stays first. The job is a GitGuardian no-op today and is
