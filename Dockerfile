@@ -7,13 +7,34 @@ FROM nvcr.io/nvidia/base/ubuntu:24.04
 # in ./corp-ca/ automatically when it detects interception; empty otherwise.
 COPY corp-ca/ /usr/local/share/ca-certificates/corp-ca/
 
-# iproute2 is required for full network namespace isolation
+# iproute2 is required for full network namespace isolation.
+# libatomic1 is a runtime dependency of the nodejs.org Node binary below.
+# python3 used to arrive via Ubuntu's npm package (npm > gyp > python3); Snyk
+# Studio's hooks and policy.yaml rely on /usr/bin/python3.12.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git jq bash iproute2 nodejs npm \
+ && apt-get install -y --no-install-recommends ca-certificates curl git jq bash iproute2 libatomic1 python3 \
  && update-ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+# --- Node.js LTS from nodejs.org (checksum verified) ----------------------------
+# Ubuntu's nodejs/npm packages install outdated JS libraries under
+# /usr/share/nodejs, which the container scan flags. Use the upstream tarball.
+ARG NODE_VERSION=26.13.0
+RUN set -eux; \
+    case "$(uname -m)" in aarch64|arm64) a=arm64 ;; x86_64|amd64) a=x64 ;; *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;; esac; \
+    f="node-v${NODE_VERSION}-linux-${a}.tar.gz"; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${f}" -o "/tmp/${f}"; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" -o /tmp/SHASUMS256.txt; \
+    printf '%s  %s\n' "$(awk -v f="${f}" '$2 == f { print $1 }' /tmp/SHASUMS256.txt)" "/tmp/${f}" > /tmp/node.sha256; \
+    sha256sum -c /tmp/node.sha256; \
+    tar -xzf "/tmp/${f}" -C /usr/local --strip-components=1 --no-same-owner \
+      --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md'; \
+    rm -f "/tmp/${f}" /tmp/SHASUMS256.txt /tmp/node.sha256; \
+    node --version; \
+    npm --version; \
+    test ! -e /usr/share/nodejs
 
 # Non-root user + writable /sandbox workspace
 RUN useradd -m -s /bin/bash sandbox \
