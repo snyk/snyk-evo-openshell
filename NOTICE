@@ -1,0 +1,10 @@
+snyk-evo-openshell
+Copyright 2026 Snyk Ltd.
+
+This product includes software from snyk/evo-ads-sbx-kit
+(https://github.com/snyk/evo-ads-sbx-kit), licensed under the Apache License 2.0:
+  vendor/install-agent-scan.sh
+  vendor/install-studio.sh
+
+It references, but does not redistribute, NVIDIA OpenShell
+(https://github.com/NVIDIA/OpenShell), licensed under the Apache License 2.0.
