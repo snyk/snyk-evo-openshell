@@ -1,0 +1,36 @@
+# Snyk (https://snyk.io) policy file
+# Exceptions for the container scan gate. Each one needs Product Security
+# Partner agreement and expires after 30 days.
+version: v1.25.0
+ignore:
+  SNYK-GOLANG-STDCRYPTOTLS-18858453:
+    - 'snyk-studio-installer@* > stdlib@1.26.5':
+        reason: Go stdlib compiled into upstream snyk-studio-installer binary (built with go1.26.5); awaiting upstream rebuild with >=1.26.6
+        expires: 2026-12-11T00:00:00.000Z
+        created: 2026-11-11T16:00:00.000Z
+  SNYK-GOLANG-STDENCODINGASN1-18858463:
+    - 'snyk-studio-installer@* > stdlib@1.26.5':
+        reason: Go stdlib compiled into upstream snyk-studio-installer binary (built with go1.26.5); awaiting upstream rebuild with >=1.26.6
+        expires: 2026-12-11T00:00:00.000Z
+        created: 2026-11-11T16:00:00.000Z
+  SNYK-GOLANG-STDENCODINGXML-18858455:
+    - 'snyk-studio-installer@* > stdlib@1.26.5':
+        reason: Go stdlib compiled into upstream snyk-studio-installer binary (built with go1.26.5); awaiting upstream rebuild with >=1.26.6
+        expires: 2026-12-11T00:00:00.000Z
+        created: 2026-11-11T16:00:00.000Z
+  SNYK-GOLANG-STDNET-18858450:
+    - 'snyk-studio-installer@* > stdlib@1.26.5':
+        reason: Go stdlib compiled into upstream snyk-studio-installer binary (built with go1.26.5); awaiting upstream rebuild with >=1.26.6
+        expires: 2026-12-11T00:00:00.000Z
+        created: 2026-11-11T16:00:00.000Z
+  SNYK-GOLANG-STDNETHTTP-18858429:
+    - 'snyk-studio-installer@* > stdlib@1.26.5':
+        reason: Go stdlib compiled into upstream snyk-studio-installer binary (built with go1.26.5); awaiting upstream rebuild with >=1.26.6
+        expires: 2026-12-11T00:00:00.000Z
+        created: 2026-11-11T16:00:00.000Z
+  SNYK-GOLANG-STDNETURL-18858438:
+    - 'snyk-studio-installer@* > stdlib@1.26.5':
+        reason: Go stdlib compiled into upstream snyk-studio-installer binary (built with go1.26.5); awaiting upstream rebuild with >=1.26.6
+        expires: 2026-12-11T00:00:00.000Z
+        created: 2026-11-11T16:00:00.000Z
+patch: {}
