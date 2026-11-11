@@ -36,6 +36,14 @@ RUN set -eux; \
     npm --version; \
     test ! -e /usr/share/nodejs
 
+# The npm bundled with Node 26.13.0 (11.20.0) pins brace-expansion 5.0.9,
+# undici 6.28.0 and postcss-selector-parser 7.1.4, all past their fix versions.
+# npm 11.21.2 resolves brace-expansion 5.0.12, undici 6.29.1 and
+# postcss-selector-parser 7.1.6.
+RUN npm install -g npm@11.21.2 \
+ && npm --version \
+ && test ! -e /usr/share/nodejs
+
 # Non-root user + writable /sandbox workspace
 RUN useradd -m -s /bin/bash sandbox \
  && install -d -o sandbox -g sandbox /sandbox
