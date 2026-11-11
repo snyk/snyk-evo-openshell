@@ -115,10 +115,10 @@ Without interception, it removes that block and the proxy. Rerun `./run.sh` afte
 | `Dockerfile` | NVIDIA Ubuntu base + Claude Code, Agent Scan/Guard, Snyk CLI, Studio installer, uv, two local MCP servers |
 | `sandbox/` | `snyk-openshell-setup` (runs at sandbox start) and `snyk-openshell-rescan` (15-minute rescans) |
 | `vendor/` | Install scripts from [snyk/evo-ads-sbx-kit](https://github.com/snyk/evo-ads-sbx-kit), unchanged |
-| `demo-skills/` | Two ordinary skills and one **deliberately malicious test skill** |
+| `demo-skills/` | Two ordinary skills and the `canary-*-TEST` detection fixtures |
 | `corp-ca/` | Corporate root CA, filled automatically when needed (gitignored) |
 
-> **`demo-skills/canary-risky-skill-TEST` is a detection test fixture.** It contains prompt-injection and exfiltration instructions on purpose, pointed at a reserved `.invalid` domain. Don't install it outside a sandbox.
+> **`demo-skills/canary-*-TEST` are intentional test fixtures.** Do not delete them. Agent Scan and GitGuardian are meant to flag them. `canary-hardcoded-secret-TEST` holds AWS's documented example key pair and a fake `ghp_` token. `canary-risky-skill-TEST` holds prompt-injection and exfiltration text aimed at a reserved `.invalid` domain. `canary-supply-chain-TEST` holds fake install and registry instructions, also on `.invalid`. Don't install them outside a sandbox.
 
 ## Known limitations
 

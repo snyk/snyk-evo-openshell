@@ -209,7 +209,9 @@ if [ "$(uname)" = Darwin ]; then
 fi
 if [ -n "$CA_BUNDLE" ]; then
   code="$(docker run --rm --network host --entrypoint curl "$IMAGE" -s -o /dev/null -w '%{http_code}' --max-time 10 -x "http://127.0.0.1:$PROXY_PORT" https://api.snyk.io/ 2>/dev/null || true)"
-  [ "$code" != "000" ] && [ -n "$code" ] || die "Local proxy check failed (api.snyk.io via 127.0.0.1:$PROXY_PORT). Check: docker logs $PROXY_NAME"
+  if [ "$code" = "000" ] || [ -z "$code" ]; then
+    die "Local proxy check failed (api.snyk.io via 127.0.0.1:$PROXY_PORT). Check: docker logs $PROXY_NAME"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
