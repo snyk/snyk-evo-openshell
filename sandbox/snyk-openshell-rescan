@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Re-runs Snyk Agent Scan every 15 minutes so Evo stays current.
+# Started in the background by snyk-openshell-setup.
+set -u
+MACHINE_ID="${1:?machine id required}"
+while sleep 900; do
+  echo "===== $(date -Is) agent-scan ====="
+  agent-scan scan --machine-id "$MACHINE_ID" --push-key "$SNYK_ADS_PUSH_KEY" || echo "agent-scan exited $?"
+done
