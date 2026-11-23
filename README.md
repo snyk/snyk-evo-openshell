@@ -1,13 +1,13 @@
-# Snyk Evo ADS on NVIDIA OpenShell (prototype)
+# Snyk Evo ADS on NVIDIA OpenShell (Experimental Preview)
 
-A working prototype of Snyk's agent security running inside an [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) sandbox, with Claude Code as the agent. Four Snyk controls run in one sandbox:
+An experimental preview of Snyk's agent security running inside an [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) sandbox, with Claude Code as the agent. Four Snyk controls run in one sandbox:
 
 - **Agent Scan** inventories the sandbox's MCP servers and skills and reports them to Evo.
 - **Agent Guard** hooks into Claude Code and enforces Evo policies at runtime.
 - **Snyk Studio (Secure at Inception)** scans code as the agent writes it and fixes findings with `/snyk-fix`.
 - **Dependency Firewall** makes the Snyk registry the only place npm, pip and uv can install packages from. Snyk's policies decide which versions are served, and OpenShell blocks every public registry so the agent can't go around it. See [Dependency Firewall](#dependency-firewall).
 
-> **Status:** experimental. Tested on macOS (Apple Silicon) with Docker Desktop and OpenShell 0.1.6, Oct 29 to Nov 2, 2026, with and without Zscaler. Not an official Snyk or NVIDIA artifact. Dependency Firewall is in experimental preview for design partners.
+> **Status:** Experimental Preview: no support commitment, and it may change or be removed. Not an NVIDIA artifact. Contact your Snyk account team to take part.
 
 ## Quick start
 
